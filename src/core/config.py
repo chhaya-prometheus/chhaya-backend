@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # AWS & S3 Settings
     AWS_REGION: str = "ap-south-1"
     S3_BUCKET: str = ""
-    S3_CELLS_KEY: str = "features/cells.geojson"
+    S3_PREFIX: str = "features"
     REFRESH_SECONDS: int = 300
 
     # Comma-separated list of allowed frontend origins, or "*" for all
