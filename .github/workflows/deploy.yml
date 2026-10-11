@@ -1,0 +1,61 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Write the SSH key
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Deploy (the server-side forced command runs deploy.sh)
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=accept-new \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            ubuntu@"$EC2_HOST"
+
+      - name: Verify the API is healthy
+        run: |
+          for i in $(seq 1 12); do
+            body=$(curl -fsS --max-time 5 https://chhaya.duckdns.org/api/health || true)
+            echo "attempt $i: $body"
+            if echo "$body" | jq -e '.status == "ok"' > /dev/null 2>&1; then
+              echo "Healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Health check failed after about 60 seconds"
+          exit 1
+
+      - name: Verify the live data
+        run: |
+          curl -fsS --max-time 30 https://chhaya.duckdns.org/api/cells \
+            | jq -e '.type == "FeatureCollection" and (.features | length > 0)'
