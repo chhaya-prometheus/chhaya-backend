@@ -6,10 +6,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from src.api import cells
+from src.api import cells, cities
 from src.core.config import settings
 from src.core.logger import configLogger
-from src.services.s3_service import get_snapshot, load_data, start_background_refresh
+from src.services.s3_service import get_cities, get_file, load_data, start_background_refresh
 
 logger = configLogger(__file__)
 
@@ -18,8 +18,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.PROJECT_NAME} (log level {settings.LOG_LEVEL})")
     load_data()
     start_background_refresh()
-    cell_count = len(get_snapshot()["data"]["features"])
-    logger.info(f"Startup complete: {cell_count} cells loaded from S3")
+    logger.info(f"Startup complete: {len(get_cities())} cities listed in cities.json")
     yield
     logger.info("Shutting down")
 
@@ -37,7 +36,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -53,12 +52,15 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/health")
 def health_check():
-    snap = get_snapshot()
-    return {
-        "status": "ok",
-        "cell_count": len(snap["data"]["features"]),
-        "loaded_at": snap["loaded_at"],
-        "etag": snap["etag"],
-    }
+    report = {}
+    for city in get_cities():
+        entry = get_file(f"{city['slug']}_cells.geojson")
+        report[city["slug"]] = {
+            "cell_count": len(entry["data"]["features"]) if entry else 0,
+            "loaded_at": entry["loaded_at"] if entry else None,
+            "etag": entry["etag"] if entry else None,
+        }
+    return {"status": "ok", "cities": report}
 
 app.include_router(cells.router)
+app.include_router(cities.router)
