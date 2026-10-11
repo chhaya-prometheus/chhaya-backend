@@ -1,29 +1,30 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
+from src.api.cities import WhatIf, city_status, run_whatif
 from src.core.logger import configLogger
-from src.services.s3_service import get_cell_data
+from src.services.s3_service import LEGACY_FILE, get_file
 
 logger = configLogger(__file__)
 
 router = APIRouter()
 
 
+def _legacy_entry():
+    entry = get_file(LEGACY_FILE)
+    if entry is None:
+        raise HTTPException(status_code=503, detail=f"{LEGACY_FILE} is not loaded")
+    return entry
+
+
 @router.get("/cells")
 def get_cells():
-    """
-    Returns the full GeoJSON FeatureCollection.
-    Data is served instantly from memory (loaded on startup from S3).
-    """
-    return get_cell_data()
+    """Legacy: the old Delhi file, so the deployed site keeps working."""
+    return Response(content=_legacy_entry()["body"], media_type="application/json")
 
 
 @router.get("/cells/{h3}")
 def get_cell_by_h3(h3: str):
-    """
-    Returns a single cell by its H3 index.
-    """
-    data = get_cell_data()
-    for feature in data.get("features", []):
+    for feature in _legacy_entry()["data"].get("features", []):
         if feature.get("properties", {}).get("h3") == h3:
             return feature
 
@@ -33,13 +34,10 @@ def get_cell_by_h3(h3: str):
 
 @router.get("/wards")
 def get_ward_summaries():
-    """
-    Returns aggregated summaries (population, average priority) for each ward.
-    """
-    data = get_cell_data()
+    """Legacy: per-ward summary computed from the old Delhi file."""
     wards = {}
 
-    for feature in data.get("features", []):
+    for feature in _legacy_entry()["data"].get("features", []):
         props = feature.get("properties", {})
         ward_name = props.get("ward", "Unknown")
 
@@ -56,7 +54,6 @@ def get_ward_summaries():
         wards[ward_name]["total_population"] += props.get("population", 0)
         wards[ward_name]["_priority_sum"] += props.get("priority", 0.0)
 
-    # Calculate final averages and clean up
     result = []
     for w_data in wards.values():
         if w_data["cell_count"] > 0:
@@ -65,3 +62,15 @@ def get_ward_summaries():
         result.append(w_data)
 
     return result
+
+
+@router.get("/status")
+def legacy_status():
+    """Legacy alias for /cities/delhi/status."""
+    return city_status("delhi")
+
+
+@router.post("/whatif")
+def legacy_whatif(body: WhatIf):
+    """Legacy alias for /cities/delhi/whatif."""
+    return run_whatif("delhi", body)
