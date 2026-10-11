@@ -55,7 +55,7 @@ jobs:
           echo "Health check failed after about 60 seconds"
           exit 1
 
-      - name: Verify the live city data
+      - name: Verify the live data
         run: |
-          curl -fsS --max-time 30 https://chhaya.duckdns.org/api/cities/delhi/cells \
+          curl -fsS --max-time 30 https://chhaya.duckdns.org/api/cells \
             | jq -e '.type == "FeatureCollection" and (.features | length > 0)'
